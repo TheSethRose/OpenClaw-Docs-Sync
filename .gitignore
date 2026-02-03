@@ -1,0 +1,4 @@
+docs/**
+!docs/**/
+!docs/**/.gitkeep
+.DS_Store
