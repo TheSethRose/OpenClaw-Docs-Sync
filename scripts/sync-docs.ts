@@ -84,6 +84,7 @@ async function syncTarget(target: RepoTarget) {
 
   await fs.rm(target.destPath, { recursive: true, force: true });
   await fs.mkdir(target.destPath, { recursive: true });
+  await fs.writeFile(path.join(target.destPath, ".gitkeep"), "keep\n", "utf8");
 
   const files = data.tree.filter(
     (entry) => entry.type === "blob" && shouldInclude(entry.path, target.sourcePath),

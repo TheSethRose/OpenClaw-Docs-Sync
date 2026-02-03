@@ -32,11 +32,11 @@ Use this skill when the agent needs **fresh documentation** or **precise referen
 ## Run the sync (steps 1–4)
 Run the script below whenever you need a fresh mirror.
 
-Preferred runtime (fast, local):
-- `bun run scripts/sync-docs.ts`
-
-Portable fallback:
+Recommended (portable):
 - `npx tsx scripts/sync-docs.ts`
+
+Optional (Bun, fastest):
+- `bun run scripts/sync-docs.ts`
 
 Script path:
 - `scripts/sync-docs.ts`

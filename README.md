@@ -11,8 +11,8 @@ Synchronize OpenClaw, ClawHub, and Skills repository documentation into a local 
 - Builds a QMD collection and embeddings for search.
 
 ## Run
-- Preferred (Bun): `bun run scripts/sync-docs.ts`
-- TS runner (portable): `npx tsx scripts/sync-docs.ts`
+- Recommended (portable): `npx tsx scripts/sync-docs.ts`
+- Optional (Bun, fastest): `bun run scripts/sync-docs.ts`
 
 Script path:
 - `scripts/sync-docs.ts`
