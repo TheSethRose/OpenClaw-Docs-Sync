@@ -38,6 +38,13 @@ Recommended (portable):
 Optional (Bun, fastest):
 - `bun run scripts/sync-docs.ts`
 
+### Bun crash avoidance for QMD
+QMD defaults to Bun. This skill ships `scripts/qmd.sh`, which runs QMD via
+`tsx`/Node to avoid Bun crashes.
+
+Manual query example:
+- `scripts/qmd.sh query "OpenClaw Security" -c openclaw-docs --files -n 5`
+
 Script path:
 - `scripts/sync-docs.ts`
 

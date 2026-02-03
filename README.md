@@ -14,6 +14,14 @@ Synchronize OpenClaw, ClawHub, and Skills repository documentation into a local 
 - Recommended (portable): `npx tsx scripts/sync-docs.ts`
 - Optional (Bun, fastest): `bun run scripts/sync-docs.ts`
 
+## Bun crash avoidance for QMD
+QMD currently shells out to Bun by default. To avoid Bun crashes, this repo ships
+`scripts/qmd.sh`, which forces QMD to run via `tsx`/Node.
+
+All QMD calls inside `scripts/sync-docs.ts` already use `scripts/qmd.sh`.
+For manual queries, use:
+- `scripts/qmd.sh query "OpenClaw Security" -c openclaw-docs --files -n 5`
+
 Script path:
 - `scripts/sync-docs.ts`
 

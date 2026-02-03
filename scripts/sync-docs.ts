@@ -121,12 +121,14 @@ async function runQmd() {
   const collectionName = "openclaw-docs";
   const mask = "**/*.{md,mdx}";
 
+  const qmdCmd = path.resolve(__dirname, "qmd.sh");
+
   await runCommand(
-    "qmd",
+    qmdCmd,
     ["collection", "add", ROOT, "--name", collectionName, "--mask", mask],
     true,
   );
-  await runCommand("qmd", ["embed", "-f"], true);
+  await runCommand(qmdCmd, ["embed", "-f"], true);
 }
 
 async function runCommand(
