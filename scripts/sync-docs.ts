@@ -30,7 +30,7 @@ const targets: RepoTarget[] = [
     repo: "openclaw",
     branch: "main",
     sourcePath: "docs",
-    destPath: ROOT,
+    destPath: path.join(ROOT, "openclaw-docs"),
   },
   {
     name: "clawhub-docs",
@@ -38,19 +38,24 @@ const targets: RepoTarget[] = [
     repo: "clawhub",
     branch: "main",
     sourcePath: "docs",
-    destPath: path.join(ROOT, "clawdhub"),
+    destPath: path.join(ROOT, "clawhub-docs"),
   },
   {
-    name: "skills-repo",
+    name: "openclaw-skills",
     owner: "openclaw",
     repo: "skills",
     branch: "main",
     sourcePath: "skills",
-    destPath: path.join(ROOT, "skills"),
+    destPath: path.join(ROOT, "openclaw-skills"),
   },
 ];
 
 const allowedExtensions = new Set([".md", ".mdx"]);
+const TREE_TIMEOUT_MS = 30_000;
+const RAW_TIMEOUT_MS = 20_000;
+const RETRY_DELAY_BASE_MS = 500;
+const DOWNLOAD_CONCURRENCY = Number(process.env.DOCS_SYNC_CONCURRENCY ?? 16);
+const PROGRESS_INTERVAL = Number(process.env.DOCS_SYNC_PROGRESS ?? 500);
 
 // Security: Detect supply chain attack patterns (prompt injection, malicious payloads)
 type Threat = { type: string; match: string };
@@ -104,27 +109,36 @@ function isTrustedExecutableDomain(url: string): boolean {
 function scanForThreats(content: string): Threat[] {
   const threats: Threat[] = [];
 
-  // 1. Base64 decoded and piped to shell execution
-  const base64Exec = /base64\s+(-[dD]|--decode)\s*\|?\s*(bash|sh|zsh)/gi;
-  for (const match of content.matchAll(base64Exec)) {
-    threats.push({ type: "base64-exec", match: match[0] });
-  }
+  // Process line-by-line to avoid cross-line false positives
+  const lines = content.split("\n");
 
-  // 2. Curl/wget piped directly to shell (the classic dropper)
-  // Skip trusted official installers
-  const pipeToShell = /(curl|wget)\s+[^|]*\|\s*(bash|sh|zsh)/gi;
-  for (const match of content.matchAll(pipeToShell)) {
-    if (!isTrustedShellDomain(match[0])) {
-      threats.push({ type: "pipe-to-shell", match: match[0] });
+  for (const line of lines) {
+    // 1. Base64 decoded and piped to shell execution
+    // Must have the pipe - that's what makes it dangerous
+    const base64Exec = /base64\s+(-[dD]|--decode)[^|]*\|\s*(bash|sh|zsh)/gi;
+    for (const match of line.matchAll(base64Exec)) {
+      threats.push({ type: "base64-exec", match: match[0] });
     }
-  }
 
-  // 3. Command substitution with curl/wget (executes the downloaded content)
-  // Skip trusted sources like Homebrew
-  const cmdSubstitution = /\$\(\s*(curl|wget)\s+[^)]+\)/gi;
-  for (const match of content.matchAll(cmdSubstitution)) {
-    if (!isTrustedShellDomain(match[0])) {
-      threats.push({ type: "cmd-substitution", match: match[0] });
+    // 2. Curl/wget piped directly to shell (the classic dropper)
+    // Require URL pattern to avoid matching "curl jq" or other garbage
+    // Skip trusted official installers
+    const pipeToShell =
+      /(curl|wget)\s+[^\n|]*https?:\/\/[^\s|]+[^\n|]*\|\s*(bash|sh|zsh)/gi;
+    for (const match of line.matchAll(pipeToShell)) {
+      if (!isTrustedShellDomain(match[0])) {
+        threats.push({ type: "pipe-to-shell", match: match[0] });
+      }
+    }
+
+    // 3. Command substitution with curl/wget (executes the downloaded content)
+    // Require URL pattern, skip trusted sources
+    const cmdSubstitution =
+      /\$\(\s*(curl|wget)\s+[^)]*https?:\/\/[^\s)]+[^)]*\)/gi;
+    for (const match of line.matchAll(cmdSubstitution)) {
+      if (!isTrustedShellDomain(match[0])) {
+        threats.push({ type: "cmd-substitution", match: match[0] });
+      }
     }
   }
 
@@ -175,7 +189,12 @@ function scanForThreats(content: string): Threat[] {
 }
 
 async function logThreats(entries: { file: string; threats: Threat[] }[]) {
-  if (entries.length === 0) return;
+  // Always clear the log file at the start of each scan
+  if (entries.length === 0) {
+    // Remove old log if no threats found
+    await fs.rm(THREAT_LOG, { force: true });
+    return;
+  }
 
   const lines = [
     `Security Scan - ${new Date().toISOString()}`,
@@ -196,18 +215,110 @@ async function logThreats(entries: { file: string; threats: Threat[] }[]) {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "openclaw-docs-sync",
-      Accept: "application/vnd.github+json",
-    },
-  });
+  return fetchJsonWithRetry<T>(url, TREE_TIMEOUT_MS, 2);
+}
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchJsonWithRetry<T>(
+  url: string,
+  timeoutMs: number,
+  retries: number,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        {
+          headers: {
+            "User-Agent": "openclaw-docs-sync",
+            Accept: "application/vnd.github+json",
+          },
+        },
+        timeoutMs,
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+      }
+
+      return (await response.json()) as T;
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        await delay(RETRY_DELAY_BASE_MS * (attempt + 1));
+        continue;
+      }
+    }
   }
 
-  return (await response.json()) as T;
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Failed to fetch ${url}: unknown error`);
+}
+
+async function fetchTextWithRetry(
+  url: string,
+  timeoutMs: number,
+  retries: number,
+): Promise<string> {
+  let lastError: unknown;
+  let lastStatus: number | undefined;
+  let retryAfterMs: number | undefined;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(url, {}, timeoutMs);
+      lastStatus = response.status;
+
+      if (!response.ok) {
+        const retryAfterHeader = response.headers.get("retry-after");
+        if (retryAfterHeader) {
+          const retryAfterSeconds = Number(retryAfterHeader);
+          if (!Number.isNaN(retryAfterSeconds)) {
+            retryAfterMs = retryAfterSeconds * 1000;
+          }
+        }
+
+        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+      }
+      return await response.text();
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        if ((lastStatus === 429 || lastStatus === 403) && retryAfterMs) {
+          console.log(`  Throttled by host, backing off for ${retryAfterMs}ms...`);
+          await delay(retryAfterMs);
+        } else {
+          await delay(RETRY_DELAY_BASE_MS * (attempt + 1));
+        }
+        continue;
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Failed to fetch ${url}: unknown error`);
 }
 
 function shouldInclude(pathname: string, sourcePath: string) {
@@ -219,6 +330,7 @@ function shouldInclude(pathname: string, sourcePath: string) {
 }
 
 async function syncTarget(target: RepoTarget): Promise<{ file: string; threats: Threat[] }[]> {
+  console.log(`  Fetching ${target.name} tree...`);
   const treeUrl = `https://api.github.com/repos/${target.owner}/${target.repo}/git/trees/${target.branch}?recursive=1`;
   const data = await fetchJson<TreeResponse>(treeUrl);
 
@@ -238,13 +350,14 @@ async function syncTarget(target: RepoTarget): Promise<{ file: string; threats: 
     return [];
   }
 
+  console.log(`  ${target.name}: downloading ${files.length} files...`);
+
   const queue = [...files];
   const errors: string[] = [];
   const flagged: { file: string; threats: Threat[] }[] = [];
   let downloaded = 0;
 
-  const concurrency = 8;
-  const workers = Array.from({ length: concurrency }).map(async () => {
+  const workers = Array.from({ length: DOWNLOAD_CONCURRENCY }).map(async () => {
     while (queue.length > 0) {
       const current = queue.shift();
       if (!current) break;
@@ -257,11 +370,7 @@ async function syncTarget(target: RepoTarget): Promise<{ file: string; threats: 
         await fs.mkdir(destDir, { recursive: true });
 
         const rawUrl = `https://raw.githubusercontent.com/${target.owner}/${target.repo}/${target.branch}/${current.path}`;
-        const response = await fetch(rawUrl);
-        if (!response.ok) {
-          throw new Error(`${response.status} ${response.statusText}`);
-        }
-        const content = await response.text();
+        const content = await fetchTextWithRetry(rawUrl, RAW_TIMEOUT_MS, 2);
 
         // Security scan (log threats but still import)
         const threats = scanForThreats(content);
@@ -271,6 +380,9 @@ async function syncTarget(target: RepoTarget): Promise<{ file: string; threats: 
 
         await fs.writeFile(destFile, content, "utf8");
         downloaded += 1;
+        if (downloaded % PROGRESS_INTERVAL === 0 || downloaded === files.length) {
+          console.log(`  ${target.name}: ${downloaded}/${files.length} files`);
+        }
       } catch (err) {
         errors.push(`${relativePath}: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -290,20 +402,44 @@ async function syncTarget(target: RepoTarget): Promise<{ file: string; threats: 
 async function runQmd() {
   const collectionName = "openclaw-docs";
   const mask = "**/*.{md,mdx}";
+  const forceRebuild = process.env.QMD_FORCE_REBUILD === "1";
+  const forceEmbed = process.env.QMD_FORCE_EMBED === "1";
 
-  // Remove existing collection first (ignore if doesn't exist)
-  try {
-    await runCommand("qmd", ["collection", "remove", collectionName], false);
-  } catch {
-    // Collection doesn't exist, that's fine
+  const collections = await listCollections();
+  const hasCollection = collections.includes(collectionName);
+
+  if (hasCollection && !forceRebuild) {
+    console.log("Updating existing collection...");
+    await runCommand("qmd", ["update"], true);
+  } else {
+    // Remove existing collection first (ignore if doesn't exist)
+    try {
+      await runCommand("qmd", ["collection", "remove", collectionName], false);
+      // Give SQLite time to release locks
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } catch {
+      // Collection doesn't exist, that's fine
+    }
+
+    // Also try removing the lock file if it exists (stale locks)
+    const qmdDataDir = path.join(os.homedir(), ".qmd");
+    const lockFile = path.join(qmdDataDir, "qmd.db-wal");
+    const shmFile = path.join(qmdDataDir, "qmd.db-shm");
+    try {
+      await fs.rm(lockFile, { force: true });
+      await fs.rm(shmFile, { force: true });
+    } catch {
+      // Ignore if they don't exist
+    }
+
+    await runCommand(
+      "qmd",
+      ["collection", "add", ROOT, "--name", collectionName, "--mask", mask],
+      true,
+    );
   }
 
-  await runCommand(
-    "qmd",
-    ["collection", "add", ROOT, "--name", collectionName, "--mask", mask],
-    true,
-  );
-  await runCommand("qmd", ["embed", "-f"], true);
+  await runCommand("qmd", forceEmbed ? ["embed", "-f"] : ["embed"], true);
 }
 
 async function runCommand(
@@ -327,6 +463,57 @@ async function runCommand(
       }
     });
   });
+}
+
+async function runCommandWithOutput(
+  command: string,
+  args: (string | number)[],
+): Promise<string> {
+  const { spawn } = await import("child_process");
+
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(command, args.map(String), {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let output = "";
+    let errorOutput = "";
+
+    child.stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk) => {
+      errorOutput += chunk.toString();
+    });
+
+    child.on("error", (error) => reject(error));
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(output);
+      } else {
+        reject(
+          new Error(
+            `${command} exited with code ${code ?? "unknown"}${errorOutput ? `: ${errorOutput}` : ""}`,
+          ),
+        );
+      }
+    });
+  });
+}
+
+async function listCollections(): Promise<string[]> {
+  try {
+    const output = await runCommandWithOutput("qmd", ["collection", "list"]);
+    return output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split("\t")[0])
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 async function main() {

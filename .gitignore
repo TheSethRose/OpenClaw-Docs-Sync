@@ -3,3 +3,6 @@ docs/**
 !docs/**/.gitkeep
 .DS_Store
 security-scan.log
+node_modules/
+.claude/
+package-lock.json

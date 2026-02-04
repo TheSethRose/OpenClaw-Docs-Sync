@@ -36,10 +36,10 @@ npx tsx scripts/sync-docs.ts
 ```
 
 This will:
-1. Mirror `openclaw/openclaw` docs → `~/.openclaw/docs/`
-2. Mirror `openclaw/clawhub` docs → `~/.openclaw/docs/clawdhub/`
-3. Mirror `openclaw/skills` skills → `~/.openclaw/docs/skills/`
-4. Build QMD collection `openclaw-docs` with embeddings
+1. Mirror `openclaw/openclaw` docs → `~/.openclaw/docs/openclaw-docs/`
+2. Mirror `openclaw/clawhub` docs → `~/.openclaw/docs/clawhub-docs/`
+3. Mirror `openclaw/skills` skills → `~/.openclaw/docs/openclaw-skills/`
+4. Build or update QMD collection `openclaw-docs` and embeddings
 
 ## Querying with QMD
 
@@ -50,8 +50,8 @@ qmd query "your question" -c openclaw-docs --files -n 20
 # Get specific file content
 qmd get <file>:<line>
 
-# Get multiple files by glob
-qmd multi-get "**/*.md" -l 200
+# Get multiple files by glob (use qmd:// prefix)
+qmd multi-get "qmd://openclaw-docs/**/SKILL.md" -l 200
 ```
 
 ## QMD retrieval guidance
@@ -71,9 +71,11 @@ qmd multi-get "**/*.md" -l 200
 4. Cite path + line numbers in your answer
 
 ### Path hints for filtering results
-- OpenClaw framework: `~/.openclaw/docs/*.md`
-- ClawHub CLI: `~/.openclaw/docs/clawdhub/*.md`
-- Skills repo: `~/.openclaw/docs/skills/**/*.md`
+- OpenClaw framework: `qmd://openclaw-docs/openclaw-docs/**/*.md`
+- ClawHub CLI: `qmd://openclaw-docs/clawhub-docs/**/*.md`
+- Skills repo: `qmd://openclaw-docs/openclaw-skills/**/*.md`
+
+If paths look different, run `qmd ls openclaw-docs` and use the returned prefixes.
 
 ## Requirements
 - QMD installed globally (`npm i -g qmd`)
@@ -81,5 +83,5 @@ qmd multi-get "**/*.md" -l 200
 
 ## Notes
 - Sync script only downloads `.md` and `.mdx` files
-- Collection is rebuilt on each sync
+- Collection is updated on each sync (use force rebuild only when needed)
 - Always prefer official docs over secondary sources
