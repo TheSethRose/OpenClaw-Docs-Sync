@@ -104,6 +104,13 @@ function scanForThreats(content: string): Threat[] {
     }
   }
 
+  // 6. Suspicious executable/archive file references in URLs or download instructions
+  // These extensions are commonly used in malware distribution
+  const execExtensions = /https?:\/\/[^\s"'<>]+\.(exe|msi|dmg|pkg|app|deb|rpm|appimage|zip|rar|7z|tar\.gz|tgz|bat|cmd|ps1|vbs|jar|apk|ipa)\b/gi;
+  for (const match of content.matchAll(execExtensions)) {
+    threats.push({ type: "executable-url", match: match[0] });
+  }
+
   return threats;
 }
 
