@@ -29,71 +29,57 @@ Use this skill when the agent needs **fresh documentation** or **precise referen
 2. A QMD collection build step with embeddings.
 3. Retrieval guidance for highest quality results.
 
-## Run the sync (steps 1–4)
-Run the script below whenever you need a fresh mirror.
+## Running the sync
 
-Recommended (portable):
-- `npx tsx scripts/sync-docs.ts`
+```bash
+npx tsx scripts/sync-docs.ts
+```
 
-Optional (Bun, fastest):
-- `bun run scripts/sync-docs.ts`
+This will:
+1. Mirror `openclaw/openclaw` docs → `~/.openclaw/docs/`
+2. Mirror `openclaw/clawhub` docs → `~/.openclaw/docs/clawdhub/`
+3. Mirror `openclaw/skills` skills → `~/.openclaw/docs/skills/`
+4. Build QMD collection `openclaw-docs` with embeddings
 
-### Bun crash avoidance for QMD
-QMD defaults to Bun. This skill ships `scripts/qmd.sh`, which runs QMD via
-`tsx`/Node to avoid Bun crashes.
+## Querying with QMD
 
-Manual query example:
-- `scripts/qmd.sh query "OpenClaw Security" -c openclaw-docs --files -n 5`
+```bash
+# Semantic + BM25 combined (best default)
+qmd query "your question" -c openclaw-docs --files -n 20
 
-Script path:
-- `scripts/sync-docs.ts`
+# Get specific file content
+qmd get <file>:<line>
 
-What it does:
-- Mirrors OpenClaw `docs/` into `docs/`
-- Mirrors ClawHub `docs/` into `docs/clawdhub/`
-- Mirrors Skills `skills/` into `docs/skills/`
-- Runs QMD collection creation + embeddings
+# Get multiple files by glob
+qmd multi-get "**/*.md" -l 200
+```
 
-Expected QMD collection name: `openclaw-docs`
+## QMD retrieval guidance
 
-## QMD retrieval guidance (most important)
-Always prioritize **QMD query + reranking** to get the highest-signal results. Then open the exact files with `qmd get` or `qmd multi-get`.
+### Search modes
 
-### 1) Best default: combined search + rerank
-Use this when you’re unsure or want the most relevant results across all three repos.
-- `qmd query "<your question>" -c openclaw-docs --files -n 20`
+| Mode | When to use | Command |
+|------|-------------|---------|
+| Combined | Default, best results | `qmd query "<question>" -c openclaw-docs --files -n 20` |
+| Semantic | Conceptual/paraphrased queries | `qmd vsearch "<concept>" -c openclaw-docs --files -n 20 --min-score 0.2` |
+| Exact | Known terms, flags, file names | `qmd search "<exact term>" -c openclaw-docs --files -n 50` |
 
-Then open the top-ranked files:
-- `qmd get <file>:<line>`
-- `qmd multi-get "<glob>" -l 200`
+### Retrieval workflow
+1. Run a search to get file paths
+2. Use `qmd get <file>:<line>` for specific content
+3. Use `qmd multi-get "<glob>" -l 200` for multiple files
+4. Cite path + line numbers in your answer
 
-### 2) Semantic search (when wording differs)
-Use vector similarity for paraphrased or conceptual questions.
-- `qmd vsearch "<concept>" -c openclaw-docs --files -n 20 --min-score 0.2`
+### Path hints for filtering results
+- OpenClaw framework: `~/.openclaw/docs/*.md`
+- ClawHub CLI: `~/.openclaw/docs/clawdhub/*.md`
+- Skills repo: `~/.openclaw/docs/skills/**/*.md`
 
-### 3) Exact text search (when you know the term)
-Use BM25 for known phrases, flags, or exact file references.
-- `qmd search "<exact term>" -c openclaw-docs --files -n 50`
-
-### 4) Narrow by repo folder
-Use path hints in your query or filter results after you get filepaths.
-
-Repo path hints:
-- OpenClaw docs: `docs/`
-- ClawHub docs: `docs/clawdhub/`
-- Skills repo: `docs/skills/`
-
-### 5) Retrieval workflow (recommended)
-1. Run `qmd query` for the broad best results.
-2. Identify top paths + file names.
-3. Use `qmd get` or `qmd multi-get` to pull exact sections.
-4. Cite the path + line numbers in your answer.
-
-## Output expectations
-- The local mirror should be a 1:1 copy of the three repo paths.
-- The QMD collection should be rebuilt after each sync.
-- Results should favor **official docs** over secondary sources.
+## Requirements
+- QMD installed globally (`npm i -g qmd`)
+- Bun runtime (QMD uses Bun-native APIs)
 
 ## Notes
-- This skill assumes QMD is installed and available in PATH.
-- The sync script only ingests folders + `.md`/`.mdx` files.
+- Sync script only downloads `.md` and `.mdx` files
+- Collection is rebuilt on each sync
+- Always prefer official docs over secondary sources

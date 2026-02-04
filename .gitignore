@@ -2,3 +2,4 @@ docs/**
 !docs/**/
 !docs/**/.gitkeep
 .DS_Store
+security-scan.log
