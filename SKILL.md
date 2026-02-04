@@ -1,87 +1,97 @@
 ---
 name: openclaw-docs-sync
-description: Sync OpenClaw + ClawHub + Skills docs into a local mirror, build QMD search collections, and guide high-precision retrieval from the three repos.
-keywords:
-  - openclaw
-  - clawhub
-  - skills
-  - docs
-  - qmd
-  - embeddings
-  - search
-author: Seth Rose
-version: 1.0.0
+description: Sync OpenClaw + ClawHub + Skills docs into a local mirror for the QMD memory backend.
+metadata:
+  author: Seth Rose
+  version: 3.0.0
+  keywords:
+    - openclaw
+    - clawhub
+    - skills
+    - docs
+    - memory
+    - qmd
+    - search
 ---
 
 # OpenClaw Docs Sync
 
 ## Purpose
-Keep a local, search-optimized mirror of the OpenClaw framework docs, ClawHub CLI/docs, and the Skills repository. The mirror is indexed with QMD so the agent can retrieve authoritative, high-signal answers fast.
+Keep a local mirror of the OpenClaw framework docs, ClawHub CLI/docs, and the Skills repository. OpenClaw's built-in QMD memory backend indexes these docs for hybrid semantic search.
 
 ## When to use
 Use this skill when the agent needs **fresh documentation** or **precise references** from:
 - OpenClaw framework docs
-- ClawHub CLI/docs
+- ClawHub CLI/docs  
 - Skills repo (all `SKILL.md` files)
 
-## What this skill provides
-1. A deterministic sync script that mirrors docs daily or on demand.
-2. A QMD collection build step with embeddings.
-3. Retrieval guidance for highest quality results.
+## Setup
 
-## Running the sync
+### Step 1: Run the sync script
+Run the script whenever you need a fresh mirror:
 
 ```bash
+# Recommended (portable)
 npx tsx scripts/sync-docs.ts
+
+# Or with Bun (fastest)
+bun run scripts/sync-docs.ts
 ```
 
-This will:
-1. Mirror `openclaw/openclaw` docs → `~/.openclaw/docs/openclaw-docs/`
-2. Mirror `openclaw/clawhub` docs → `~/.openclaw/docs/clawhub-docs/`
-3. Mirror `openclaw/skills` skills → `~/.openclaw/docs/openclaw-skills/`
-4. Build or update QMD collection `openclaw-docs` and embeddings
+What it does:
+- Mirrors OpenClaw `docs/` into `~/.openclaw/docs/openclaw-docs/`
+- Mirrors ClawHub `docs/` into `~/.openclaw/docs/clawhub-docs/`
+- Mirrors Skills `skills/` into `~/.openclaw/docs/openclaw-skills/`
+- Runs security scans on downloaded content
 
-## Querying with QMD
+### Step 2: Add to openclaw.json
+After syncing, add the path to your `openclaw.json` config using `memory.qmd.paths`:
 
-```bash
-# Semantic + BM25 combined (best default)
-qmd query "your question" -c openclaw-docs --files -n 20
-
-# Get specific file content
-qmd get <file>:<line>
-
-# Get multiple files by glob (use qmd:// prefix)
-qmd multi-get "qmd://openclaw-docs/**/SKILL.md" -l 200
+```json
+{
+  "memory": {
+    "backend": "qmd",
+    "citations": "auto",
+    "qmd": {
+      "includeDefaultMemory": true,
+      "update": { "interval": "5m" },
+      "paths": [
+        {
+          "name": "openclaw-docs",
+          "path": "~/.openclaw/docs",
+          "pattern": "**/*.{md,mdx}"
+        }
+      ]
+    }
+  }
+}
 ```
 
-## QMD retrieval guidance
+## How the agent uses synced docs
 
-### Search modes
+Once configured in `openclaw.json`, OpenClaw's QMD memory backend automatically:
+1. **Indexes** the synced docs on startup and at regular intervals (default 5m)
+2. **Embeds** chunks for hybrid search (BM25 + vectors + reranking)
+3. **Searches** via `memory_search` tool when you ask questions
+4. **Retrieves** exact file content via `memory_get` tool
 
-| Mode | When to use | Command |
-|------|-------------|---------|
-| Combined | Default, best results | `qmd query "<question>" -c openclaw-docs --files -n 20` |
-| Semantic | Conceptual/paraphrased queries | `qmd vsearch "<concept>" -c openclaw-docs --files -n 20 --min-score 0.2` |
-| Exact | Known terms, flags, file names | `qmd search "<exact term>" -c openclaw-docs --files -n 50` |
+The agent will cite sources like:
+```
+Source: qmd/openclaw-docs/concepts/memory.md#L45-L52
+```
 
-### Retrieval workflow
-1. Run a search to get file paths
-2. Use `qmd get <file>:<line>` for specific content
-3. Use `qmd multi-get "<glob>" -l 200` for multiple files
-4. Cite path + line numbers in your answer
+## Repo structure in synced mirror
 
-### Path hints for filtering results
-- OpenClaw framework: `qmd://openclaw-docs/openclaw-docs/**/*.md`
-- ClawHub CLI: `qmd://openclaw-docs/clawhub-docs/**/*.md`
-- Skills repo: `qmd://openclaw-docs/openclaw-skills/**/*.md`
-
-If paths look different, run `qmd ls openclaw-docs` and use the returned prefixes.
-
-## Requirements
-- QMD installed globally (`npm i -g qmd`)
-- Bun runtime (QMD uses Bun-native APIs)
+```
+~/.openclaw/docs/
+├── openclaw-docs/   # OpenClaw framework docs
+├── clawhub-docs/    # ClawHub CLI docs  
+└── openclaw-skills/ # All SKILL.md files from skills repo
+```
 
 ## Notes
-- Sync script only downloads `.md` and `.mdx` files
-- Collection is updated on each sync (use force rebuild only when needed)
-- Always prefer official docs over secondary sources
+
+- The sync script only ingests `.md` and `.mdx` files
+- Synced docs are read-only; edit upstream repos to update
+- Security scans run automatically; threats logged to `~/.openclaw/security-scan.log`
+- See [QMD Backend docs](https://docs.openclaw.ai/concepts/memory#qmd-backend-experimental) for full configuration options

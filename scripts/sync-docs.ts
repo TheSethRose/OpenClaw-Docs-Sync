@@ -399,123 +399,6 @@ async function syncTarget(target: RepoTarget): Promise<{ file: string; threats: 
   return flagged;
 }
 
-async function runQmd() {
-  const collectionName = "openclaw-docs";
-  const mask = "**/*.{md,mdx}";
-  const forceRebuild = process.env.QMD_FORCE_REBUILD === "1";
-  const forceEmbed = process.env.QMD_FORCE_EMBED === "1";
-
-  const collections = await listCollections();
-  const hasCollection = collections.includes(collectionName);
-
-  if (hasCollection && !forceRebuild) {
-    console.log("Updating existing collection...");
-    await runCommand("qmd", ["update"], true);
-  } else {
-    // Remove existing collection first (ignore if doesn't exist)
-    try {
-      await runCommand("qmd", ["collection", "remove", collectionName], false);
-      // Give SQLite time to release locks
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    } catch {
-      // Collection doesn't exist, that's fine
-    }
-
-    // Also try removing the lock file if it exists (stale locks)
-    const qmdDataDir = path.join(os.homedir(), ".qmd");
-    const lockFile = path.join(qmdDataDir, "qmd.db-wal");
-    const shmFile = path.join(qmdDataDir, "qmd.db-shm");
-    try {
-      await fs.rm(lockFile, { force: true });
-      await fs.rm(shmFile, { force: true });
-    } catch {
-      // Ignore if they don't exist
-    }
-
-    await runCommand(
-      "qmd",
-      ["collection", "add", ROOT, "--name", collectionName, "--mask", mask],
-      true,
-    );
-  }
-
-  await runCommand("qmd", forceEmbed ? ["embed", "-f"] : ["embed"], true);
-}
-
-async function runCommand(
-  command: string,
-  args: (string | number)[],
-  inheritOutput = false,
-) {
-  const { spawn } = await import("child_process");
-
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args.map(String), {
-      stdio: inheritOutput ? "inherit" : "pipe",
-    });
-
-    child.on("error", (error) => reject(error));
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`${command} exited with code ${code ?? "unknown"}`));
-      }
-    });
-  });
-}
-
-async function runCommandWithOutput(
-  command: string,
-  args: (string | number)[],
-): Promise<string> {
-  const { spawn } = await import("child_process");
-
-  return new Promise<string>((resolve, reject) => {
-    const child = spawn(command, args.map(String), {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let output = "";
-    let errorOutput = "";
-
-    child.stdout.on("data", (chunk) => {
-      output += chunk.toString();
-    });
-
-    child.stderr.on("data", (chunk) => {
-      errorOutput += chunk.toString();
-    });
-
-    child.on("error", (error) => reject(error));
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve(output);
-      } else {
-        reject(
-          new Error(
-            `${command} exited with code ${code ?? "unknown"}${errorOutput ? `: ${errorOutput}` : ""}`,
-          ),
-        );
-      }
-    });
-  });
-}
-
-async function listCollections(): Promise<string[]> {
-  try {
-    const output = await runCommandWithOutput("qmd", ["collection", "list"]);
-    return output
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => line.split("\t")[0])
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
 async function main() {
   console.log(`Syncing docs to ${ROOT}`);
   await fs.mkdir(ROOT, { recursive: true });
@@ -534,9 +417,24 @@ async function main() {
 
   await logThreats(allFlagged);
 
-  console.log("Building collection...");
-  await runQmd();
-  console.log("Done");
+  console.log("\nDocs synced to:", ROOT);
+  console.log("\nAdd to your openclaw.json:");
+  console.log(`
+{
+  "memory": {
+    "backend": "qmd",
+    "qmd": {
+      "paths": [
+        {
+          "name": "openclaw-docs",
+          "path": "${ROOT}",
+          "pattern": "**/*.{md,mdx}"
+        }
+      ]
+    }
+  }
+}`);
+  console.log("\nDone");
 }
 
 main().catch((error) => {
