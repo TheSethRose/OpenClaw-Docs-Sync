@@ -28,6 +28,68 @@ qmd query "your question" -c openclaw-docs --files -n 20
 qmd get <file>:<line>
 ```
 
+## Working config example (OpenClaw.json)
+
+This is the memory config I use and it works. **You must set the `paths` to match your local folders and the locations created by `scripts/sync-docs.ts`.**
+
+If you run the script as‑is, your docs are written under:
+
+- `~/.openclaw/docs/openclaw-docs`
+- `~/.openclaw/docs/clawhub-docs`
+- `~/.openclaw/docs/openclaw-skills`
+
+Point `paths[].path` at one or more of those directories (or any custom location you sync to).
+
+```json
+"memory": {
+  "backend": "qmd",
+  "citations": "auto",
+  "qmd": {
+    "command": "qmd",
+    "includeDefaultMemory": true,
+    "paths": [
+      {
+        "path": "/example/path/to/documents",
+        "name": "example-docs",
+        "pattern": "**/*.md"
+      }
+    ],
+    "sessions": {
+      "enabled": true,
+      "retentionDays": 30
+    },
+    "update": {
+      "interval": "5m",
+      "debounceMs": 15000,
+      "onBoot": true,
+      "embedInterval": "1h"
+    },
+    "limits": {
+      "maxResults": 6,
+      "maxSnippetChars": 700,
+      "maxInjectedChars": 4000,
+      "timeoutMs": 4000
+    },
+    "scope": {
+      "default": "deny",
+      "rules": [
+        {
+          "action": "allow",
+          "match": {
+            "chatType": "direct"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Notes:
+
+- If you want to index `.mdx` files too, widen the pattern to `**/*.{md,mdx}`.
+- The `name` is just a stable label for the collection; pick whatever you like.
+
 ## Security Scanning
 
 This sync includes detection for supply chain attacks where malicious actors inject prompt injection or shell droppers into skill documentation.
